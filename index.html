@@ -2,74 +2,80 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D Diagnostic</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Keys</title>
   <style>
-    body { margin: 0; font-family: sans-serif; overflow: hidden; }
-    #status { position: fixed; top: 10px; left: 10px; background: #111; color: #0f0; padding: 10px; border-radius: 6px; z-index: 99; max-width: 90%; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+    canvas { display: block; width: 100%; height: 100%; }
   </style>
+  <script src="https://jsdelivr.net"></script>
+  <script src="https://jsdelivr.net"></script>
+  <script src="https://jsdelivr.net"></script>
 </head>
 <body>
-  <div id="status">Loading 3D engine...</div>
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://unpkg.com",
-        "three/addons/": "https://unpkg.com"
-      }
-    }
-  </script>
-  <script type="module">
-    import * as THREE from 'three';
-    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-
-    const status = document.getElementById('status');
+  <script>
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-    camera.position.set(0, 0, 5);
-
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.outputEncoding = THREE.sRGBEncoding;
     document.body.appendChild(renderer.domElement);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 3));
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.enableZoom = false;
 
-    // Test cube to verify WebGL works
-    const cube = new THREE.Mesh(
-      new THREE.BoxGeometry(0.5, 0.5, 0.5),
-      new THREE.MeshBasicMaterial({ color: 0xffcc00, wireframe: true })
-    );
-    cube.position.set(-1.5, 0, 0);
-    scene.add(cube);
+    scene.add(new THREE.AmbientLight(0xffffff, 2.2));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+    dirLight.position.set(5, 10, 7);
+    scene.add(dirLight);
 
-    status.textContent = 'WebGL active. Downloading keys.glb...';
+    let mixer;
+    const clock = new THREE.Clock();
 
-    const loader = new GLTFLoader();
-    loader.load(
-      'https://githubusercontent.com',
-      (gltf) => {
-        status.textContent = 'SUCCESS! Keys loaded.';
-        scene.remove(cube);
-        const model = gltf.scene;
-        const box = new THREE.Box3().setFromObject(model);
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-        const scale = 2.5 / (Math.max(size.x, size.y, size.z) || 1);
-        model.scale.setScalar(scale);
-        model.position.sub(center.multiplyScalar(scale));
-        scene.add(model);
-      },
-      (xhr) => {
-        if (xhr.total) status.textContent = `Downloading: ${Math.round((xhr.loaded / xhr.total) * 100)}%`;
-      },
-      (err) => {
-        status.style.color = '#ff5555';
-        status.textContent = 'ERROR: ' + (err.message || err);
+    const loader = new THREE.GLTFLoader();
+    loader.load('./keys.glb', function (gltf) {
+      const model = gltf.scene;
+      scene.add(model);
+
+      // Measure only visible meshes so faraway Sketchfab lights don't shrink the keys
+      const box = new THREE.Box3();
+      model.traverse(function (child) {
+        if (child.isMesh) box.expandByObject(child);
+      });
+
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z) || 1;
+      const scale = 2.6 / maxDim;
+
+      model.scale.setScalar(scale);
+      model.position.sub(center.multiplyScalar(scale));
+
+      camera.position.set(0, 0.4, 4);
+      controls.target.set(0, 0, 0);
+      controls.update();
+
+      if (gltf.animations && gltf.animations.length > 0) {
+        mixer = new THREE.AnimationMixer(model);
+        gltf.animations.forEach(function (clip) {
+          mixer.clipAction(clip).play();
+        });
       }
-    );
+    });
+
+    window.addEventListener('resize', function () {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
 
     function animate() {
       requestAnimationFrame(animate);
-      cube.rotation.y += 0.02;
+      const delta = clock.getDelta();
+      if (mixer) mixer.update(delta);
+      controls.update();
       renderer.render(scene, camera);
     }
     animate();

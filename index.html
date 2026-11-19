@@ -4,42 +4,88 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>3D Keys</title>
-  <script type="module" src="https://googleapis.com"></script>
   <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      background: transparent;
-      overflow: hidden;
-    }
-    model-viewer {
-      width: 100%;
-      height: 100%;
-      background-color: transparent;
-      --poster-color: transparent;
-    }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+    canvas { display: block; width: 100%; height: 100%; }
   </style>
 </head>
 <body>
-  <model-viewer 
-    id="viewer"
-    src="./keys.glb" 
-    autoplay 
-    auto-rotate 
-    camera-controls 
-    exposure="1.2"
-    shadow-intensity="1">
-  </model-viewer>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com",
+        "three/addons/": "https://unpkg.com"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-  <script>
-    const viewer = document.querySelector('#viewer');
-    viewer.addEventListener('load', () => {
-      viewer.cameraTarget = 'auto auto auto';
-      viewer.cameraOrbit = '0deg 75deg auto';
-      viewer.jumpCameraToGoal();
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.enableZoom = false;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 2.2));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+    dirLight.position.set(5, 10, 7);
+    scene.add(dirLight);
+
+    let mixer;
+    const clock = new THREE.Clock();
+
+    const loader = new GLTFLoader();
+    loader.load('./keys.glb', (gltf) => {
+      const model = gltf.scene;
+      scene.add(model);
+
+      // Measure ONLY visible 3D meshes and ignore faraway Sketchfab light nodes
+      const box = new THREE.Box3();
+      model.traverse((child) => {
+        if (child.isMesh) box.expandByObject(child);
+      });
+
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z) || 1;
+      const scale = 2.5 / maxDim;
+
+      model.scale.setScalar(scale);
+      model.position.sub(center.multiplyScalar(scale));
+
+      camera.position.set(0, 0.5, 4);
+      controls.target.set(0, 0, 0);
+      controls.update();
+
+      if (gltf.animations && gltf.animations.length > 0) {
+        mixer = new THREE.AnimationMixer(model);
+        gltf.animations.forEach((clip) => mixer.clipAction(clip).play());
+      }
     });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      if (mixer) mixer.update(delta);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
   </script>
 </body>
 </html>
